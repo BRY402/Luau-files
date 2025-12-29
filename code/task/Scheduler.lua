@@ -40,7 +40,7 @@ function scheduler.addFloor(level)
     return scheduler.tasks[level]
 end
 
-function scheduler.addTask(thread, level, promise, ...)
+function scheduler.addTask(thread, level, condition, ...)
     local tasks = scheduler.tasks
     local floor, err = tasks[level] or scheduler.addFloor(level)
     if not floor then
@@ -48,14 +48,19 @@ function scheduler.addTask(thread, level, promise, ...)
     end
     
     if type(thread) ~= 'thread' then
-        return nil, "Expected thread, got "..type(thread)
+        return nil, "Argument #1 ÷xpected thread, got "..type(thread)
+    end
+    
+    if type(condition) ~= "function" then
+        return nil, "Argument #3 expected function, got "..type(condition)
     end
 
     floor[floor.n + 1] = {
         thread = thread,
         createdAt = os_clock(),
         args = {...},
-        promise = promise,
+        finished = false,
+        condition = condition,
         Index = floor.n + 1
     }
     floor.n = floor.n + 1
@@ -74,7 +79,9 @@ end
 
 function scheduler.scheduleTask(thread, level, waitTime, ...)
     return scheduler.addTask(thread, level, function(self)
-        return os_clock() - self.createdAt >= waitTime
+        self.finished = os_clock() - self.createdAt >= waitTime
+        
+        return self.finished
     end)
 end
 
@@ -83,13 +90,18 @@ local function execTask(scheduledTask, floor)
         return false, "Scheduled task is nil"
     end
     
-    if scheduledTask:promise() then
+    if not scheduledTask.finished and scheduledTask:condition() then
         local thread = scheduledTask.thread
-        scheduler.removeTask(floor, scheduledTask.Index)
+        
         if coroutine_status(thread) ~= 'dead' then
             resume(scheduledTask.thread, table_unpack(scheduledTask.args))
         end
     end
+    
+    if scheduledTask.finished then
+        scheduler.removeTask(floor, scheduledTask.Index)
+    end
+    
     return true
 end
 
