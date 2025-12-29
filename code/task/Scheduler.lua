@@ -16,14 +16,14 @@ local function isInt(number)
 end
 
 local function resume(thread, ...)
-    local success, errormsg = coroutine_resume(thread, ...)
+    local success, msg = coroutine_resume(thread, ...)
 
     if not success then
-        print(errormsg)
-        return
+        print(msg)
+        return false
     end
 
-    return thread
+    return thread, msg
 end
 
 
@@ -61,7 +61,7 @@ function scheduler.addTask(thread, level, condition, ...)
         args = {...},
         finished = false,
         condition = condition,
-        Index = floor.n + 1
+        index = floor.n + 1
     }
     floor.n = floor.n + 1
     
@@ -83,6 +83,63 @@ function scheduler.scheduleTask(thread, level, waitTime, ...)
         
         return self.finished
     end)
+end
+
+local function execTask(scheduledTask, floor)
+    if not scheduledTask then
+        return false, "Scheduled task is nil"
+    end
+    
+    if not scheduledTask.finished and scheduledTask:condition() then
+        local thread = scheduledTask.thread
+        
+        if coroutine_status(thread) ~= 'dead' then
+            resume(scheduledTask.thread, table_unpack(scheduledTask.args))
+        end
+    end
+    
+    if scheduledTask.finished then
+        scheduler.removeTask(floor, scheduledTask.index)
+    end
+    
+    return true
+end
+
+
+function scheduler.run(level, i)
+    if not isInt(level) then
+        return false, "Level is expected to be an integer"
+    end
+
+    local tasks = scheduler.tasks
+    local floor = tasks[level]
+
+    if not floor then
+        return false, "Given level for floor is invalid (no floor found)"
+    end
+
+    if i then
+        if not isInt(i) then
+            return false, "Index expected to be an integer"
+        end
+
+        local task = floor[i]
+
+        return execTask(task, floor)
+    end
+
+    for _, task in ipairs(floor) do
+        if task then
+            execTask(task, floor)
+        end
+    end
+
+    return true
+end
+
+scheduler.resume = resume
+
+return scheduler    end)
 end
 
 local function execTask(scheduledTask, floor)
