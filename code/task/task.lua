@@ -4,7 +4,6 @@ end
 
 local task = {levels = {}}
 
-local format = string.format
 local type = type
 local error = error
 local ipairs = ipairs
@@ -14,7 +13,8 @@ local coroutine_running = coroutine.running
 local coroutine_close = coroutine.close
 local os_clock = os.clock
 
-local scheduler = require('./Scheduler')
+local scheduler = require('./Shared/Scheduler')
+local mainThread = coroutine_running()
 
 task.levels.INIT_LVL = 1
 task.levels.HEARTBEAT_LVL = 2
@@ -24,40 +24,44 @@ scheduler.addFloor(task.levels.HEARTBEAT_LVL) -- Heartbeat
 
 
 -- Task functions
-function task.wait(duration: number): number
+function task.wait(duration)
+    if coroutine_running() == mainThread then
+        return 0
+    end
+    
     scheduler.scheduleTask(coroutine_running(), task.levels.HEARTBEAT_LVL, duration)
     local start = os_clock()
     coroutine_yield()
     return os_clock() - start
 end
 
-function task.spawn(functionOrThread: (...any) -> any | thread, ...: any): thread
+function task.spawn(functionOrThread, ...)
     local thread = type(functionOrThread) == 'function' and coroutine_create(functionOrThread) or functionOrThread
 
     if type(thread) ~= 'thread' then
-        error(format('Expected thread, got %s', type(thread)), 2)
+        print("Expected thread, got "..type(thread))
     end
 
     return scheduler.resume(thread, ...)
 end
 
-function task.defer(functionOrThread: (...any) -> ...any, ...: any)
+function task.defer(functionOrThread, ...)
     local thread = type(functionOrThread) == 'function' and coroutine_create(functionOrThread) or functionOrThread
 
     if type(thread) ~= 'thread' then
-        error(format('Expected thread, got %s', type(thread)), 2)
+        print("Expected thread, got "..type(thread))
     end
 
-    scheduler.scheduleTask(thread, task.levels.INIT_LVL, 0, ...)
+    scheduler.scheduleTask(thread, task.levels.HEARTBEAT_LVL, 0, ...)
 
     return thread
 end
 
-function task.delay(duration: number, functionOrThread: (...any) -> ...any | thread, ...: any)
+function task.delay(duration, functionOrThread, ...)
     local thread = type(functionOrThread) == 'function' and coroutine_create(functionOrThread) or functionOrThread
 
     if type(thread) ~= 'thread' then
-        error(format('Expected thread, got %s', type(thread)), 2)
+        return print("Expected thread, got "..type(thread))
     end
 
     scheduler.scheduleTask(thread, task.levels.HEARTBEAT_LVL, duration, ...)
@@ -65,30 +69,30 @@ function task.delay(duration: number, functionOrThread: (...any) -> ...any | thr
     return thread
 end
 
-function task.cancel(thread: thread): nil
+function task.cancel(thread)
     coroutine_close(thread)
-    return nil
 end
 
-function task.run(functionOrThread: ((...any) -> ...any | thread)?): nil
-    if functionOrThread then
-        task.spawn(functionOrThread)
+function task.run(functionOrThread)
+    if functionOrThread then -- Just in case
+        return task.spawn(functionOrThread)
     end
-    while true do
+    while true do -- Make sure all tasks scheduled for execution are finished
         local finishedfloors = 0
         for i, floor in ipairs(scheduler.tasks) do
             if floor.n <= 0 then
                 finishedfloors = finishedfloors + 1
-                continue
+            else
+                finishedfloors = finishedfloors - 1
+                scheduler.run(i)
             end
-            finishedfloors = finishedfloors - 1
-            scheduler.run(i)
         end
         if finishedfloors >= scheduler.tasks.n then
             break
         end
     end
-    return nil
+
+    return true
 end
 
 task.scheduler = scheduler
