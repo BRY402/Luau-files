@@ -1,4 +1,4 @@
-local format = string.format
+local print = print
 local type = type
 local error = error
 local ipairs = ipairs
@@ -9,28 +9,27 @@ local table_remove = table.remove
 local table_unpack = table.unpack or unpack
 local os_clock = os.clock
 
-type Floor = {n: number, [number]: any}
-type Task = {any}
-
 local scheduler = {tasks = {n = 0}}
 
-local function isInt(number: number): boolean
-    return not not (tonumber(number) and number % 1 == 0)
+local function isInt(number)
+    return tonumber(number) and number % 1 == 0
 end
 
-local function resume(thread: thread, ...: any?): thread
+local function resume(thread, ...)
     local success, errormsg = coroutine_resume(thread, ...)
 
     if not success then
-        error(errormsg, 2)
+        print(errormsg)
+        return
     end
 
     return thread
 end
 
-function scheduler.addFloor(level: number): Floor
+
+function scheduler.addFloor(level)
     if not isInt(level) then
-        error('Level is expexted to be an integer', 2)
+        return nil, "Level is expected to be an integer"
     end
 
     if not scheduler.tasks[level] then
@@ -41,66 +40,86 @@ function scheduler.addFloor(level: number): Floor
     return scheduler.tasks[level]
 end
 
-function scheduler.scheduleTask(thread: thread, level: number, waitTime: number?, ...: any?): Task
-    if not isInt(level) then
-        error('Level is expexted to be an integer', 2)
-    end
-
+function scheduler.addTask(thread, level, promise, ...)
     local tasks = scheduler.tasks
-    local floor = tasks[level] or scheduler.addFloor(level)
-
+    local floor, err = tasks[level] or scheduler.addFloor(level)
+    if not floor then
+        return nil, err
+    end
+    
     if type(thread) ~= 'thread' then
-        error(format('Expected thread, got %s', type(thread)), 2)
+        return nil, "Expected thread, got "..type(thread)
     end
 
-    floor[floor.n + 1] = {thread, os_clock(), tonumber(waitTime) or 0, {...}}
+    floor[floor.n + 1] = {
+        thread = thread,
+        createdAt = os_clock(),
+        args = {...},
+        promise = promise,
+        Index = floor.n + 1
+    }
     floor.n = floor.n + 1
-
+    
     return floor[floor.n]
 end
 
-local function execTask(scheduledTask: Task, id: number, floor: Floor): nil
-    local delta = os_clock() - scheduledTask[2]
-    if delta >= scheduledTask[3] then
-        local thread = scheduledTask[1]
-        table_remove(floor, id)
-        floor.n = floor.n - 1
-        if coroutine_status(thread) ~= 'dead' then
-            resume(scheduledTask[1], table_unpack(scheduledTask[4]))
-        end
+function scheduler.removeTask(floor, i)
+    if not isInt(i) then
+        return false, "Index expected to be an integer"
     end
-    return
+    
+    table_remove(floor, i)
+    floor.n = floor.n - 1
 end
 
-function scheduler.run(level: number, id: number?): boolean
+function scheduler.scheduleTask(thread, level, waitTime, ...)
+    return scheduler.addTask(thread, level, function(self)
+        return os_clock() - self.createdAt >= waitTime
+    end)
+end
+
+local function execTask(scheduledTask, floor)
+    if not scheduledTask then
+        return false, "Scheduled task is nil"
+    end
+    
+    if scheduledTask:promise() then
+        local thread = scheduledTask.thread
+        scheduler.removeTask(floor, scheduledTask.Index)
+        if coroutine_status(thread) ~= 'dead' then
+            resume(scheduledTask.thread, table_unpack(scheduledTask.args))
+        end
+    end
+    return true
+end
+
+
+function scheduler.run(level, i)
     if not isInt(level) then
-        error('Level is expexted to be an integer', 2)
+        return false, "Level is expected to be an integer"
     end
 
     local tasks = scheduler.tasks
     local floor = tasks[level]
 
     if not floor then
-        return false
+        return false, "Given level for floor is invalid (no floor found)"
     end
 
-    if id then
-        if not isInt(id) then
-            error('Task id is expexted to be an integer', 2)
+    if i then
+        if not isInt(i) then
+            return false, "Index expected to be an integer"
         end
 
-        local task = floor[id]
+        local task = floor[i]
 
-        execTask(task, id, floor)
-
-        return true
+        return execTask(task, floor)
     end
 
-    for id, task in ipairs(floor) do
-        if not task then
-            continue
+    for _, task in ipairs(floor) do
+        if task then
+            execTask(task, floor)
         end
-        execTask(task, id, floor)
     end
 
     return true
