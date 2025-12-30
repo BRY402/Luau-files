@@ -52,7 +52,7 @@ function task.defer(functionOrThread, ...)
         print("Expected thread, got "..type(thread))
     end
 
-    scheduler.scheduleTask(thread, task.levels.HEARTBEAT_LVL, 0, ...)
+    scheduler.scheduleTask(thread, task.levels.HEARTBEAT_LVL, 0, {...})
 
     return thread
 end
@@ -64,7 +64,7 @@ function task.delay(duration, functionOrThread, ...)
         return print("Expected thread, got "..type(thread))
     end
 
-    scheduler.scheduleTask(thread, task.levels.HEARTBEAT_LVL, duration, ...)
+    scheduler.scheduleTask(thread, task.levels.HEARTBEAT_LVL, duration, {...})
 
     return thread
 end
