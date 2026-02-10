@@ -1,13 +1,11 @@
 local coroutine = coroutine
-local package
+local sb_package = {preload = {}}
 local print = print
 
 local require = (function(_ENV)
     local unpack = unpack or table.unpack
-
-    package = package or {preload = {}}
     local loaded = {}
-    package.loaded = setmetatable({}, {__index = loaded})
+    sb_package.loaded = setmetatable({}, {__index = loaded})
 
     return function(modname, args)
         local res = loaded[modname]
@@ -15,7 +13,7 @@ local require = (function(_ENV)
             return res
         end
 
-        local mod = package.preload[modname]
+        local mod = sb_package.preload[modname]
         if mod then
             local args = type(args) == "table" and args or {args}
             loaded[modname] = mod(setmetatable({}, {__index = _ENV}), modname, unpack(args))
@@ -27,7 +25,7 @@ local require = (function(_ENV)
     end
 end)(_ENV or getfenv())
 
-package.preload["./Scheduler"] = function(_ENV, ...)
+sb_package.preload["./Scheduler"] = function(_ENV, ...)
     local function mod(_ENV, ...)
 local coroutine_create = coroutine.create
 local coroutine_resume = coroutine.resume
@@ -129,16 +127,8 @@ return Scheduler
     if setfenv then
         setfenv(mod, _ENV)
     end
-        
-    local thread = coroutine.create(mod)
-    local success, result = coroutine.resume(thread, _ENV, ...)
 
-    if not success then
-        print(result)
-        return
-    end
-
-    return result
+    return mod(_ENV, ...)
 end
 local coroutine_close = coroutine.close
 local coroutine_running = coroutine.running
@@ -146,7 +136,7 @@ local coroutine_yield = coroutine.yield
 local mainThread = coroutine_running()
 local os_clock = os.clock
 local tonumber = tonumber
-local Scheduler = require("./Scheduler")
+local Scheduler = require("./Scheduler") --$*
 
 local HEARTBEAT = Scheduler.createFloor(1)
 local function patientThread(threadTask, waitTime)

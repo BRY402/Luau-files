@@ -4,7 +4,7 @@ local coroutine_yield = coroutine.yield
 local mainThread = coroutine_running()
 local os_clock = os.clock
 local tonumber = tonumber
-local Scheduler = require("./Scheduler")
+local Scheduler = require("./Scheduler") --$*
 
 local HEARTBEAT = Scheduler.createFloor(1)
 local function patientThread(threadTask, waitTime)
