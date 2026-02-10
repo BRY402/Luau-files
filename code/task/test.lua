@@ -1,4 +1,4 @@
-local task = require('./task')
+local task = require('./TaskScheduler')
 
 local format = string.format
 local coroutine_status = coroutine.status
@@ -9,6 +9,7 @@ local function test(testn)
         n = n + i
         task.wait()
     end
+    print(n)
     if n ~= 55 then
         print(format('Test%i failed', testn))
         return
@@ -37,4 +38,8 @@ else
     print('Test4 passed')
 end
 
-task.run(function() test(5) end) -- same as task.spawn, but doesnt hurt to do thid
+task.wait(2)
+
+while true do
+    task.run()
+end

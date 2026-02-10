@@ -1,146 +1,96 @@
-local print = print
-local type = type
-local error = error
-local ipairs = ipairs
-local tonumber = tonumber
+local coroutine_create = coroutine.create
 local coroutine_resume = coroutine.resume
 local coroutine_status = coroutine.status
+local ipairs = ipairs
+local print = print
 local table_remove = table.remove
-local table_unpack = table.unpack or unpack
-local os_clock = os.clock
-
-local scheduler = {tasks = {n = 0}}
-
-local function isInt(number)
-    return tonumber(number) and number % 1 == 0
-end
+local type = type
+local unpack = unpack or table.unpack
 
 local function resume(thread, ...)
-    local success, msg = coroutine_resume(thread, ...)
-
-    if not success then
-        print(msg)
-        return false
+    local result = {coroutine_resume(thread, ...)}
+    if not result[1] then
+        print(result[2])
     end
-
-    return thread, msg
+    
+    return unpack(result)
 end
 
+local threadObj = {
+    ClassName = "thread",
+    floor = nil,
+    ref = nil, -- main thread
+    id = 0,
+    quota = function(self, task)
+        self.quota = type(task) == "function" and task or self.quota
+        return true
+    end,
+    finished = false,
+    args = nil
+}
 
-function scheduler.addFloor(level)
-    if not isInt(level) then
-        return nil, "Level is expected to be an integer"
-    end
+local Scheduler = {floors = {}}
 
-    if not scheduler.tasks[level] then
-        scheduler.tasks[level] = {n = 0}
-        scheduler.tasks.n = scheduler.tasks.n + 1
-    end
-
-    return scheduler.tasks[level]
+function Scheduler.createFloor(level)
+    local floor = {n = 0}
+    Scheduler.floors[level] = floor
+    
+    return floor
 end
 
-function scheduler.addTask(thread, level, condition, args)
-    local tasks = scheduler.tasks
-    local floor, err = tasks[level] or scheduler.addFloor(level)
-    if not floor then
-        return nil, err
+function Scheduler.createThread(task, floor)
+    if type(task) == "table" and task.ClassName == "thread" then
+        return task
     end
     
-    if type(thread) ~= "thread" then
-        return nil, "Argument #1 ÷xpected thread, got "..type(thread)
+    local thread = setmetatable({}, {__index = threadObj})
+    thread.ref = type(task) == "thread" and task or coroutine_create(task)
+    thread.id = #floor + 1
+    floor[thread.id] = thread
+    thread.floor = floor
+    
+    if thread.id > floor.n then
+        floor.n = floor.n + 1
     end
     
-    if type(condition) ~= "function" then
-        return nil, "Argument #3 expected function, got "..type(condition)
-    end
-    
-    if args and type(args) ~= "table" then
-        return nil, "Argument #4 expected table, got "..type(args)
-    end
-
-    floor[floor.n + 1] = {
-        thread = thread,
-        createdAt = os_clock(),
-        args = args or {},
-        finished = false,
-        condition = condition,
-        index = floor.n + 1
-    }
-    floor.n = floor.n + 1
-    
-    return floor[floor.n]
+    return thread
 end
 
-function scheduler.removeTask(floor, i)
-    if not isInt(i) then
-        return false, "Index expected to be an integer"
+function Scheduler.resume(thread, ...)
+    if not thread then
+        return
     end
     
-    table_remove(floor, i)
-    floor.n = floor.n - 1
-end
-
-function scheduler.scheduleTask(thread, level, waitTime, args)
-    return scheduler.addTask(thread, level, function(self)
-        self.finished = os_clock() - self.createdAt >= waitTime
+    if not thread:quota() then
+        return false, "thread self-assigned quota not reached", 1
+    end
+    
+    local isDead = coroutine_status(thread.ref) == "dead"
+    local isSuspended = coroutine_status(thread.ref) == "suspended"
+    thread.finished = isDead or thread.finished
+    
+    if isSuspended then
+        local args = thread.args or {...}
+        return resume(thread.ref, unpack(args)), 0
+    end
+    
+    if thread.finished then
+        if not thread.floor then
+            return
+        end
         
-        return self.finished
-    end, args)
+        thread.floor[thread.id] = nil
+        thread.floor = nil
+        return
+    end
 end
 
-local function execTask(scheduledTask, floor)
-    if not scheduledTask then
-        return false, "Scheduled task is nil"
-    end
-    
-    if not scheduledTask.finished and scheduledTask:condition() then
-        local thread = scheduledTask.thread
-        
-        if coroutine_status(thread) ~= 'dead' then
-            resume(scheduledTask.thread, table_unpack(scheduledTask.args))
+function Scheduler.run(...)
+    for _, floor in ipairs(Scheduler.floors) do
+        for i = 1, floor.n do
+            Scheduler.resume(floor[i], ...)
         end
     end
-    
-    if scheduledTask.finished then
-        scheduler.removeTask(floor, scheduledTask.index)
-    end
-    
-    return true
 end
 
-
-function scheduler.run(level, i)
-    if not isInt(level) then
-        return false, "Level is expected to be an integer"
-    end
-
-    local tasks = scheduler.tasks
-    local floor = tasks[level]
-
-    if not floor then
-        return false, "Given level for floor is invalid (no floor found)"
-    end
-
-    if i then
-        if not isInt(i) then
-            return false, "Index expected to be an integer"
-        end
-
-        local task = floor[i]
-
-        return execTask(task, floor)
-    end
-
-    for _, task in ipairs(floor) do
-        if task then
-            execTask(task, floor)
-        end
-    end
-
-    return true
-end
-
-scheduler.resume = resume
-
-return scheduler
+return Scheduler
