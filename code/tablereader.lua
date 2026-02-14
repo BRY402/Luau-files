@@ -27,7 +27,7 @@ local function read(table_, level)
   local stringRepr = {'{', '}'}
   local n = 1
   for k, v in next, table_ do
-    local fromType = reader.types[type(v)] or reader.noType
+    local fromType = reader.types[type(v)] or reader.anyType
     local element = reader:f(k, fromType(v, level), level)
     
     n = n+1
@@ -44,11 +44,12 @@ reader = {
   CAN_TABLES_REPEAT = true,
   
   getKoI = function(k)
-    return tonumber(k) and '[%q] = %s;', or '[%i] = %s;'
+    return tonumber(k) or tostring(k), tonumber(k) and '[%i] = %s;' or '[%q] = %s;'
   end,
   
   f = function(self, k, v, level)
-    return rep(self.WS, level)..f(self.getKoI(k), k, v)
+    local KoI, repr = self.getKoI(k)
+    return rep(self.WS, level)..f(repr, KoI, tostring(v))
   end,
   
   types = {
@@ -62,12 +63,13 @@ reader = {
       return read(v, level + 1)
     end
   },
-  noType = tostring,
+  anyType = tostring,
   
   Cycled = {}
 }
 
 function reader:read(table_)
+  self.Cycled = {}
   return read(table_, self.DEFAULT_LEVEL)
 end
 
