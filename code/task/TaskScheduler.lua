@@ -25,8 +25,12 @@ local require = (function(_ENV)
     end
 end)(_ENV or getfenv())
 
+local NLS = NLS or function()
+    print("NLS is not supported in this script builder")
+end
+
 sb_package.preload["./Scheduler"] = function(_ENV, ...)
-    local function mod(_ENV, ...)
+        local function mod(_ENV, ...)
 local coroutine_create = coroutine.create
 local coroutine_resume = coroutine.resume
 local coroutine_status = coroutine.status
@@ -78,11 +82,21 @@ function Scheduler.createThread(task, floor)
     floor[thread.id] = thread
     thread.floor = floor
     
-    if thread.id > floor.n then
-        floor.n = floor.n + 1
-    end
+    local n = floor.n
+    floor.n = thread.id > n and (n + (thread.id - n)) or n
     
     return thread
+end
+
+function Scheduler.removeThread(thread)
+    if not thread.floor then
+        return
+    end
+    
+    local n = thread.floor.n
+    thread.floor.n = n <= thread.id and (n - (thread.id - n + 1)) or n
+    thread.floor[thread.id] = nil
+    thread.floor = nil
 end
 
 function Scheduler.resume(thread, ...)
@@ -104,13 +118,7 @@ function Scheduler.resume(thread, ...)
     end
     
     if thread.finished then
-        if not thread.floor then
-            return
-        end
-        
-        thread.floor[thread.id] = nil
-        thread.floor = nil
-        return
+        Scheduler.removeThread(thread)
     end
 end
 
@@ -124,12 +132,18 @@ end
 
 return Scheduler
     end
-    if setfenv then
-        setfenv(mod, _ENV)
+    
+    local thread = coroutine.create(setfenv and setfenv(mod, _ENV) or mod)
+    local success, result = coroutine.resume(thread, _ENV, ...)
+
+    if not success then
+        print(result)
+        return
     end
 
-    return mod(_ENV, ...)
+    return result
 end
+
 local coroutine_close = coroutine.close
 local coroutine_running = coroutine.running
 local coroutine_yield = coroutine.yield

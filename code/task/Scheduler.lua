@@ -49,11 +49,21 @@ function Scheduler.createThread(task, floor)
     floor[thread.id] = thread
     thread.floor = floor
     
-    if thread.id > floor.n then
-        floor.n = floor.n + 1
-    end
+    local n = floor.n
+    floor.n = thread.id > n and (n + (thread.id - n)) or n
     
     return thread
+end
+
+function Scheduler.removeThread(thread)
+    if not thread.floor then
+        return
+    end
+    
+    local n = thread.floor.n
+    thread.floor.n = n <= thread.id and (n - (thread.id - n + 1)) or n
+    thread.floor[thread.id] = nil
+    thread.floor = nil
 end
 
 function Scheduler.resume(thread, ...)
@@ -75,13 +85,7 @@ function Scheduler.resume(thread, ...)
     end
     
     if thread.finished then
-        if not thread.floor then
-            return
-        end
-        
-        thread.floor[thread.id] = nil
-        thread.floor = nil
-        return
+        Scheduler.removeThread(thread)
     end
 end
 
